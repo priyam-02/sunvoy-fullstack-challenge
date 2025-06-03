@@ -91,3 +91,20 @@ async function login() {
     throw err;
   }
 }
+
+// Fetch all users from the API
+async function fetchUsers() {
+  try {
+    const res = await client.post(`${BASE_URL}/api/users`, {
+      headers: { Accept: "application/json" },
+    });
+    return res.data;
+  } catch (error: any) {
+    console.error(
+      "❌ Failed to fetch users:",
+      error.response?.status,
+      error.response?.data
+    );
+    throw error;
+  }
+}
