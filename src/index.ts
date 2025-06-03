@@ -108,3 +108,68 @@ async function fetchUsers() {
     throw error;
   }
 }
+
+/**
+ * Creates a signed request payload by replicating the logic found in:
+ * https://challenge.sunvoy.com/js/settings.fefd531f237bcd266fc9.js
+ *
+ * How I discovered this:
+ * - I opened the browser’s Developer Tools → Network tab while visiting `/settings`.
+ * - Observed a POST request to `https://api.challenge.sunvoy.com/api/settings`.
+ * - The `Request Payload` was in `application/x-www-form-urlencoded` format and contained:
+ *   - Multiple key-value pairs (like `access_token`, `openid`, etc.)
+ *   - A `timestamp`
+ *   - A `checkcode` (a signature)
+ * - I inspected the minified JS file `settings.fefd531f237bcd266fc9.js` from the Network → JS tab.
+ * - It imported a `createSignedRequest` function (resolved as HMAC with SHA-1).
+ * - The code constructed a string like: `key1=value1&key2=value2...`, sorted alphabetically by key.
+ * - It then computed an HMAC-SHA1 signature of that payload using the secret `"mys3cr3t"`.
+ * - The signature was uppercased and appended as `checkcode=SIGNATURE`.
+ *
+ * This function replicates that exact logic.
+ */
+function createSignedRequest(tokens: Record<string, string>) {
+  const timestamp = Math.floor(Date.now() / 1000).toString();
+  const baseParams: Record<string, string> = { ...tokens, timestamp };
+  const sortedKeys = Object.keys(baseParams).sort();
+  const payload = sortedKeys
+    .map((key) => `${key}=${encodeURIComponent(baseParams[key])}`)
+    .join("&");
+
+  const hmac = crypto.createHmac("sha1", "mys3cr3t");
+  hmac.update(payload);
+  const checkcode = hmac.digest("hex").toUpperCase();
+
+  return { fullPayload: `${payload}&checkcode=${checkcode}`, timestamp };
+}
+
+// Extract tokens (e.g. access_token, openid, userId) from the hidden input fields
+async function extractTokensFromSettings(): Promise<Record<string, string>> {
+  const res = await client.get(`${BASE_URL}/settings/tokens`);
+  const $ = cheerio.load(res.data);
+  const tokens: Record<string, string> = {};
+  $("input[type=hidden]").each((_, el) => {
+    const id = $(el).attr("id");
+    const value = $(el).attr("value");
+    if (id && value) tokens[id] = value;
+  });
+  return tokens;
+}
+
+// Fetch authenticated user details (userId, name, email)
+export async function fetchMe() {
+  const tokens = await extractTokensFromSettings();
+  const { fullPayload } = createSignedRequest(tokens);
+
+  const res = await client.post(`${BASE_URL2}/api/settings`, fullPayload, {
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+  });
+
+  const { id, firstName, lastName, email } = res.data;
+  return {
+    userId: id,
+    firstName,
+    lastName,
+    email,
+  };
+}
