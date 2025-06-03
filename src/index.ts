@@ -173,3 +173,26 @@ export async function fetchMe() {
     email,
   };
 }
+
+// Main entry point: handles login/session, fetches user info and writes output
+async function main() {
+  await loadCookies();
+
+  const stillValid = await isSessionValid();
+  if (!stillValid) {
+    await login();
+    await saveCookies();
+  }
+
+  const users = await fetchUsers();
+  const me = await fetchMe();
+
+  const result = { users, me };
+  await fs.writeFile("users.json", JSON.stringify(result, null, 2));
+  console.log("✅ users.json written successfully");
+}
+
+// Run the main function and handle errors
+main().catch((err) => {
+  console.error("❌ Error:", err.message);
+});
